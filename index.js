@@ -11,7 +11,7 @@ app.use(express.json());
 
 
 
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.mti5t.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -43,7 +43,6 @@ async function run() {
 
     app.get('/my-queries', async (req, res) => {
         const queryEmail = req.query.email;
-        console.log(queryEmail);
         const query = { userEmail: queryEmail };
         const result = await queryCollection.find(query).toArray();
         res.send(result)
@@ -59,9 +58,15 @@ async function run() {
         const queryData = req.body;
         const result = await queryCollection.insertOne(queryData);
         res.send(result);
-    })
-    
+    });
 
+    app.delete("/my-queries-delete/:id", async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id)};
+        const result = await queryCollection.deleteOne(query);
+        res.send(result);
+    });
+    
     } 
 
 
