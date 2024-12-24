@@ -35,7 +35,6 @@ async function run() {
     const userCollection = client.db("queryDB").collection("user");
 
     app.get("/recent-queries", async (req, res) => {
-        // const query = 
         const queries = queryCollection.find().sort({ timestamp: -1 }).limit(6);
         const result = await queries.toArray()
         res.send(result);
@@ -46,6 +45,20 @@ async function run() {
         const query = { userEmail: queryEmail };
         const result = await queryCollection.find(query).toArray();
         res.send(result)
+    });
+
+    app.get("/details/:id", async (req, res) => {
+        const itemId = req.params.id;
+        const query = { _id: new ObjectId(itemId) };
+        const result = await queryCollection.findOne(query);
+        res.send(result);
+    });
+
+    app.get("/update/:id", async (req, res) => {
+        const itemId = req.params.id;
+        const query = { _id: new ObjectId(itemId) };
+        const result = await queryCollection.findOne(query);
+        res.send(result);
     });
 
     app.post("/users", async (req, res) => {
@@ -66,10 +79,32 @@ async function run() {
         const result = await queryCollection.deleteOne(query);
         res.send(result);
     });
+
+    app.put("/update/:id", async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const options = { upsert: true };
+        const updatedDoc = req.body;
+        const updated = {
+            $set: {
+            boycottingReasonDetails: updatedDoc.boycottingReasonDetails,
+            queryTitle: updatedDoc.queryTitle,
+            productImageURL: updatedDoc.productImageURL,
+            productBrand: updatedDoc.productBrand,
+            productName: updatedDoc.productName,
+            timestamp: updatedDoc.timestamp,
+            },
+        };
+        const result = await queryCollection.updateOne(
+            filter,
+            updated,
+            options
+        );
+        res.send(result);
+    });
+    
     
     } 
-
-
     finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
