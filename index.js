@@ -32,7 +32,10 @@ async function run() {
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
     const queryCollection = client.db("queryDB").collection("queries")
+
     const userCollection = client.db("queryDB").collection("user");
+
+    const recommendationCollection = client.db("queryDB").collection("recommendation")
 
     app.get("/recent-queries", async (req, res) => {
         const queries = queryCollection.find().sort({ timestamp: -1 }).limit(6);
@@ -40,10 +43,16 @@ async function run() {
         res.send(result);
     });
 
+    app.get("/all-queries", async (req, res) => {
+        const queries = queryCollection.find().sort({ timestamp: -1 });
+        const result = await queries.toArray()
+        res.send(result);
+    });
+
     app.get('/my-queries', async (req, res) => {
         const queryEmail = req.query.email;
         const query = { userEmail: queryEmail };
-        const result = await queryCollection.find(query).toArray();
+        const result = await queryCollection.find(query).sort({ timestamp: -1 }).toArray();
         res.send(result)
     });
 
@@ -72,6 +81,79 @@ async function run() {
         const result = await queryCollection.insertOne(queryData);
         res.send(result);
     });
+
+    app.post("/recommendation", async (req, res) => {
+        const queryData = req.body;
+        const result = await recommendationCollection.insertOne(queryData);
+
+        const update = {
+            $inc: { recommendationCount: 1},
+        }
+        const filter = { _id: new ObjectId(queryData.queryId)}
+        const updateCount = await queryCollection.updateOne(filter, update)
+
+        res.send(result);
+    });
+
+    app.get("/recommendation", async (req, res) => {
+        const queries = recommendationCollection.find();
+        const result = await queries.toArray();
+        res.send(result);
+    });
+
+    // My Recommendation
+    app.get('/my-recommendation/:email', async (req, res) => {
+        const email = req.params.email;
+        const query = { recommendationEmail: email};
+        const result = await recommendationCollection.find(query).toArray();
+        res.send(result)
+    })
+
+    // app.delete("/my-recommendation-delete/:id", async (req, res) => {
+    //     const id = req.params.id;
+    //     const query = { _id: new ObjectId(id)};
+    //     const result = await recommendationCollection.deleteOne(query);
+
+    //     const recommendations = await recommendationCollection.findOne(query)
+    //     console.log(recommendations);
+    //     // const update = {
+    //     //     $inc: { recommendationCount: -1},
+    //     // }
+    //     // const queryId = result;
+    //     // const filter = { _id: new ObjectId(queryId)}
+    //     // const updateCount = await queryCollection.updateOne(filter, update)
+    //     res.send(result)
+    // })
+
+
+    app.delete("/my-recommendation-delete/:id", async (req, res) => {
+        const id = req.params.id;
+    
+        try {
+          // Step 1: Find the recommendation document to get the associated queryId
+        const recommendation = await recommendationCollection.findOne({ _id: new ObjectId(id) });
+
+        if (!recommendation) {
+            return res.status(404).send({ error: "Recommendation not found" });
+        }
+
+          const queryId = recommendation.queryId; // Extract queryId from the recommendation document
+    
+          // Step 2: Delete the recommendation document
+        const deleteResult = await recommendationCollection.deleteOne({ _id: new ObjectId(id) });
+    
+          // Step 3: Decrement the recommendationCount in the queryCollection
+        const update = { $inc: { recommendationCount: -1 } };
+          const filter = { _id: new ObjectId(queryId) }; // Use queryId for the filter
+        const updateCount = await queryCollection.updateOne(filter, update);
+    
+        res.send({ deleteResult, updateCount });
+        } catch (error) {
+        res.status(500).send({ error: "An error occurred", details: error.message });
+        }
+    });
+    
+
 
     app.delete("/my-queries-delete/:id", async (req, res) => {
         const id = req.params.id;
