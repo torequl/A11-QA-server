@@ -82,18 +82,57 @@ async function run() {
         res.send(result);
     });
 
+    // app.post("/recommendation", async (req, res) => {
+    //     const queryData = req.body;
+    //     const result = await recommendationCollection.insertOne(queryData);
+
+
+    //     // if (queryData.userEmail === recommenderEmail) {
+    //     //     return res.status(403).send({ error: "You cannot recommend your own query." });
+    //     // }
+
+    //     const update = {
+    //         $inc: { recommendationCount: 1},
+    //     }
+    //     const filter = { _id: new ObjectId(queryData.queryId)}
+    //     const updateCount = await queryCollection.updateOne(filter, update)
+
+    //     res.send(result);
+    // });
+
+
+
     app.post("/recommendation", async (req, res) => {
-        const queryData = req.body;
-        const result = await recommendationCollection.insertOne(queryData);
-
-        const update = {
-            $inc: { recommendationCount: 1},
+        const { queryId, recommendationEmail } = req.body;
+    
+        try {
+          // Find the query in the database
+            const query = await queryCollection.findOne({ _id: new ObjectId(queryId) });
+            
+            // Prevent users from recommending their own queries
+            if (query.userEmail === recommendationEmail) {
+                return res.status(403).send({ error: "You cannot recommend your own query." });
+            }
+        
+            // Add the recommendation
+            const result = await recommendationCollection.insertOne(req.body);
+        
+            // Increment the recommendation count
+            await queryCollection.updateOne(
+                { _id: new ObjectId(queryId) },
+                { $inc: { recommendationCount: 1 } }
+            );
+        
+            res.send(result);
+        }   catch (error) {
+            res.status(500).send({ error: "Failed to add recommendation", details: error.message });
         }
-        const filter = { _id: new ObjectId(queryData.queryId)}
-        const updateCount = await queryCollection.updateOne(filter, update)
-
-        res.send(result);
     });
+    
+
+
+
+
 
     app.get("/recommendation", async (req, res) => {
         const queries = recommendationCollection.find();
@@ -108,23 +147,6 @@ async function run() {
         const result = await recommendationCollection.find(query).toArray();
         res.send(result)
     })
-
-    // app.delete("/my-recommendation-delete/:id", async (req, res) => {
-    //     const id = req.params.id;
-    //     const query = { _id: new ObjectId(id)};
-    //     const result = await recommendationCollection.deleteOne(query);
-
-    //     const recommendations = await recommendationCollection.findOne(query)
-    //     console.log(recommendations);
-    //     // const update = {
-    //     //     $inc: { recommendationCount: -1},
-    //     // }
-    //     // const queryId = result;
-    //     // const filter = { _id: new ObjectId(queryId)}
-    //     // const updateCount = await queryCollection.updateOne(filter, update)
-    //     res.send(result)
-    // })
-
 
     app.delete("/my-recommendation-delete/:id", async (req, res) => {
         const id = req.params.id;
@@ -152,7 +174,44 @@ async function run() {
         res.status(500).send({ error: "An error occurred", details: error.message });
         }
     });
+
+
+
+// API to fetch recommendations for the logged-in user's queries
+app.get("/recommendations-for-me/:email", async (req, res) => {
+    const userEmail = req.params.email; // Logged-in user's email
+
+    try {
+        // Step 1: Find all queries created by the user
+        const userQueries = await queryCollection.find({userEmail}).toArray();
+
+        const queryIds = userQueries.map(query => query._id.toString()); // Extract query IDs
+
+        // Step 2: Find recommendations for these queries
+        const recommendations = await recommendationCollection.find({queryId: {$in: queryIds}}).toArray();
+
+        res.send(recommendations);
+    } catch (error) {
+        res.status(500).send({
+            error: "Failed to fetch recommendations",
+            details: error.message
+        });
+    }
+});
     
+// Show All Recommendation Data
+app.get("/recommendations/:queryId", async (req, res) => {
+    const queryId = req.params.queryId;
+    try {
+      // Find all recommendations matching the given queryId
+    const recommendations = await recommendationCollection.find({ queryId }).toArray();
+
+    res.send(recommendations);
+    } catch (error) {
+    res.status(500).send({ error: "Failed to fetch recommendations", details: error.message });
+    }
+});
+
 
 
     app.delete("/my-queries-delete/:id", async (req, res) => {
