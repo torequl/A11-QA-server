@@ -15,6 +15,21 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
+const verifyToken = (req, res, next) => {
+    const token = req.cookies?.token;
+    if(!token){
+        return res.status(401).send({ message: "Unauthorized access" });
+    }
+
+    jwt.verify(token, SECRET_KEY, (err, decoded) => {
+        if(err){
+            return res.status(403).send({ message: "Forbidden access" });
+        }
+        req.user = decoded;
+        next()
+    })
+}
+
 
 const SECRET_KEY = process.env.SECRET_KEY;
 
@@ -78,9 +93,12 @@ async function run() {
         res.send(result);
     });
 
-    app.get('/my-queries', async (req, res) => {
+    app.get('/my-queries', verifyToken, async (req, res) => {
         const queryEmail = req.query.email;
         const query = { userEmail: queryEmail };
+        if(req.user.email !== queryEmail){
+            return res.status(403).send({message: 'Forbidden Access'})
+        }
         const result = await queryCollection.find(query).sort({ timestamp: -1 }).toArray();
         res.send(result)
     });
@@ -140,10 +158,6 @@ async function run() {
     });
     
 
-
-
-
-
     app.get("/recommendation", async (req, res) => {
         const queries = recommendationCollection.find();
         const result = await queries.toArray();
@@ -151,9 +165,12 @@ async function run() {
     });
 
     // My Recommendation
-    app.get('/my-recommendation/:email', async (req, res) => {
+    app.get('/my-recommendation/:email', verifyToken, async (req, res) => {
         const email = req.params.email;
         const query = { recommendationEmail: email};
+        if(req.user.email !== email){
+            return res.status(403).send({message: 'Forbidden Access'})
+        }
         const result = await recommendationCollection.find(query).toArray();
         res.send(result)
     })
@@ -188,8 +205,12 @@ async function run() {
 
 
 // API to fetch recommendations for the logged-in user's queries
-app.get("/recommendations-for-me/:email", async (req, res) => {
+app.get("/recommendations-for-me/:email", verifyToken, async (req, res) => {
     const userEmail = req.params.email; // Logged-in user's email
+
+    if(req.user.email !== userEmail){
+        return res.status(403).send({message: "Forbidden access" })
+    }
 
     try {
         // Step 1: Find all queries created by the user
