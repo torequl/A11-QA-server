@@ -1,5 +1,7 @@
 const express = require("express");
 const cors = require("cors");
+const jwt = require("jsonwebtoken")
+const cookieParser = require("cookie-parser")
 require("dotenv").config();
 const port = process.env.PORT || 5000;
 
@@ -8,7 +10,10 @@ const app = express();
 // middleware
 app.use(cors());
 app.use(express.json());
+app.use(cookieParser());
 
+
+const SECRET_KEY = process.env.SECRET_KEY;
 
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -36,6 +41,19 @@ async function run() {
     const userCollection = client.db("queryDB").collection("user");
 
     const recommendationCollection = client.db("queryDB").collection("recommendation")
+
+
+    // JWT APIs
+    app.post("/jwt", (req, res) => {
+        const user = req.body;
+        const token = jwt.sign( user, SECRET_KEY, { expiresIn: '5min'});
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: false,
+        });
+        res.send({ success: true })
+    })
+
 
     app.get("/recent-queries", async (req, res) => {
         const queries = queryCollection.find().sort({ timestamp: -1 }).limit(6);
@@ -81,25 +99,6 @@ async function run() {
         const result = await queryCollection.insertOne(queryData);
         res.send(result);
     });
-
-    // app.post("/recommendation", async (req, res) => {
-    //     const queryData = req.body;
-    //     const result = await recommendationCollection.insertOne(queryData);
-
-
-    //     // if (queryData.userEmail === recommenderEmail) {
-    //     //     return res.status(403).send({ error: "You cannot recommend your own query." });
-    //     // }
-
-    //     const update = {
-    //         $inc: { recommendationCount: 1},
-    //     }
-    //     const filter = { _id: new ObjectId(queryData.queryId)}
-    //     const updateCount = await queryCollection.updateOne(filter, update)
-
-    //     res.send(result);
-    // });
-
 
 
     app.post("/recommendation", async (req, res) => {
