@@ -4,34 +4,39 @@ const jwt = require("jsonwebtoken")
 const cookieParser = require("cookie-parser")
 require("dotenv").config();
 const port = process.env.PORT || 5000;
-
 const app = express();
+const SECRET_KEY = process.env.SECRET_KEY;
 
 // middleware
 app.use(cors({
-    origin: ['http://localhost:5173'],
+    origin: [
+        'http://localhost:5173',
+        'https://assignment-11qa.web.app'
+    ],
     credentials: true,
+    optionsSuccessStatus: 200,
 }));
 app.use(express.json());
 app.use(cookieParser());
 
+
 const verifyToken = (req, res, next) => {
     const token = req.cookies?.token;
-    if(!token){
-        return res.status(401).send({ message: "Unauthorized access" });
+    
+    if (!token) {
+        return res.status(401).send({ message: "Unauthorized: No token provided" });
     }
 
     jwt.verify(token, SECRET_KEY, (err, decoded) => {
-        if(err){
-            return res.status(403).send({ message: "Forbidden access" });
+        if (err) {
+            return res.status(403).send({ message: "Forbidden: Invalid token" });
         }
-        req.user = decoded;
-        next()
-    })
+        req.user = decoded; // Attach user info to req
+        next(); // Proceed to the next middleware or route handler
+    });
 }
 
 
-const SECRET_KEY = process.env.SECRET_KEY;
 
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -48,11 +53,11 @@ const client = new MongoClient(uri, {
 
 async function run() {
     try {
-    // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // // Connect the client to the server	(optional starting in v4.7)
+    // await client.connect();
+    // // Send a ping to confirm a successful connection
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
     const queryCollection = client.db("queryDB").collection("queries")
 
@@ -62,27 +67,30 @@ async function run() {
 
 
     // JWT APIs
-    app.post("/jwt", (req, res) => {
-        const user = req.body;
-        const token = jwt.sign( user, SECRET_KEY, { expiresIn: '5min'});
+    app.post('/jwt', async (req, res)=> {
+        const email = req.body;
+        const token = jwt.sign(email, SECRET_KEY, {expiresIn: '24h'})
         res.cookie('token', token, {
             httpOnly: true,
-            secure: false,
-        });
-        res.send({ success: true })
-    });
+            secure: process.env.NODE_ENV === "production",
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        }).send({success:'login'})
+
+        // console.log(token);
+    })
 
     // Delete Token
-    app.post('/logout', (req, res) => {
+    app.get('/logout', (req, res) => {
         res.clearCookie('token', {
-            httpOnly: true,
-            secure: false,
-        }).send({success: true})
-    })
+            maxAge: 0,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        }).send({success: 'logout'})
+    });
 
 
     app.get("/recent-queries", async (req, res) => {
-        const queries = queryCollection.find().sort({ timestamp: -1 }).limit(6);
+        const queries = queryCollection.find().sort({ timestamp: -1 }).limit(8);
         const result = await queries.toArray()
         res.send(result);
     });
@@ -93,24 +101,20 @@ async function run() {
         res.send(result);
     });
 
-    app.get('/my-queries', verifyToken, async (req, res) => {
-        const queryEmail = req.query.email;
-        const query = { userEmail: queryEmail };
-        if(req.user.email !== queryEmail){
+    app.get('/my-queries/:email', verifyToken, async (req, res) => {
+        const decodedEmail = req.user?.email;
+        const email = req.params.email;
+        const query = { userEmail: email };
+
+        if(decodedEmail !== email){
             return res.status(403).send({message: 'Forbidden Access'})
         }
+
         const result = await queryCollection.find(query).sort({ timestamp: -1 }).toArray();
         res.send(result)
     });
 
     app.get("/details/:id", async (req, res) => {
-        const itemId = req.params.id;
-        const query = { _id: new ObjectId(itemId) };
-        const result = await queryCollection.findOne(query);
-        res.send(result);
-    });
-
-    app.get("/update/:id", async (req, res) => {
         const itemId = req.params.id;
         const query = { _id: new ObjectId(itemId) };
         const result = await queryCollection.findOne(query);
@@ -164,16 +168,19 @@ async function run() {
         res.send(result);
     });
 
+
     // My Recommendation
     app.get('/my-recommendation/:email', verifyToken, async (req, res) => {
         const email = req.params.email;
         const query = { recommendationEmail: email};
+
         if(req.user.email !== email){
             return res.status(403).send({message: 'Forbidden Access'})
         }
+
         const result = await recommendationCollection.find(query).toArray();
         res.send(result)
-    })
+    });
 
     app.delete("/my-recommendation-delete/:id", async (req, res) => {
         const id = req.params.id;
@@ -203,46 +210,44 @@ async function run() {
     });
 
 
+    // API to fetch recommendations for the logged-in user's queries
+    app.get("/recommendations-for-me/:email", verifyToken, async (req, res) => {
+        const userEmail = req.params.email;
 
-// API to fetch recommendations for the logged-in user's queries
-app.get("/recommendations-for-me/:email", verifyToken, async (req, res) => {
-    const userEmail = req.params.email; // Logged-in user's email
+        if(req.user.email !== userEmail){
+            return res.status(403).send({message: "Forbidden access" })
+        }
 
-    if(req.user.email !== userEmail){
-        return res.status(403).send({message: "Forbidden access" })
-    }
+        try {
+            // Step 1: Find all queries created by the user
+            const userQueries = await queryCollection.find({userEmail}).toArray();
 
-    try {
-        // Step 1: Find all queries created by the user
-        const userQueries = await queryCollection.find({userEmail}).toArray();
+            const queryIds = userQueries.map(query => query._id.toString()); // Extract query IDs
 
-        const queryIds = userQueries.map(query => query._id.toString()); // Extract query IDs
+            // Step 2: Find recommendations for these queries
+            const recommendations = await recommendationCollection.find({queryId: {$in: queryIds}}).toArray();
 
-        // Step 2: Find recommendations for these queries
-        const recommendations = await recommendationCollection.find({queryId: {$in: queryIds}}).toArray();
+            res.send(recommendations);
+        } catch (error) {
+            res.status(500).send({
+                error: "Failed to fetch recommendations",
+                details: error.message
+            });
+        }
+    });
+    
+    // Show All Recommendation Data
+    app.get("/recommendations/:queryId", async (req, res) => {
+        const queryId = req.params.queryId;
+        try {
+        // Find all recommendations matching the given queryId
+        const recommendations = await recommendationCollection.find({ queryId }).toArray();
 
         res.send(recommendations);
-    } catch (error) {
-        res.status(500).send({
-            error: "Failed to fetch recommendations",
-            details: error.message
-        });
-    }
-});
-    
-// Show All Recommendation Data
-app.get("/recommendations/:queryId", async (req, res) => {
-    const queryId = req.params.queryId;
-    try {
-      // Find all recommendations matching the given queryId
-    const recommendations = await recommendationCollection.find({ queryId }).toArray();
-
-    res.send(recommendations);
-    } catch (error) {
-    res.status(500).send({ error: "Failed to fetch recommendations", details: error.message });
-    }
-});
-
+        } catch (error) {
+        res.status(500).send({ error: "Failed to fetch recommendations", details: error.message });
+        }
+    });
 
 
     app.delete("/my-queries-delete/:id", async (req, res) => {
@@ -251,6 +256,7 @@ app.get("/recommendations/:queryId", async (req, res) => {
         const result = await queryCollection.deleteOne(query);
         res.send(result);
     });
+
 
     app.put("/update/:id", async (req, res) => {
         const id = req.params.id;
@@ -275,6 +281,8 @@ app.get("/recommendations/:queryId", async (req, res) => {
         res.send(result);
     });
     
+
+
     
     } 
     finally {
@@ -283,7 +291,6 @@ app.get("/recommendations/:queryId", async (req, res) => {
     }
 }
 run().catch(console.dir);
-
 
 
 
